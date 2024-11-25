@@ -6,6 +6,7 @@
 
 #define priorityTask1 2
 #define priorityTask2 2
+#define priorityTask3 2
 
 SemaphoreHandle_t xMutex;
 
@@ -13,6 +14,7 @@ LCD_I2C lcd(0x27, 16, 2);
 
 void update_waktu(void *pvParam);
 void tampilkan_waktu(void *pvParam);
+void baca_tombol(void *pvParam);
 
 int jam = 0, menit = 0, detik = 0;
 
@@ -33,7 +35,8 @@ void setup() {
   lcd.backlight();
   xMutex = xSemaphoreCreateMutex();
   xTaskCreatePinnedToCore(update_waktu, "Task 1", 2048, NULL, priorityTask1, NULL, 0);
-  xTaskCreatePinnedToCore(tampilkan_waktu, "Task 2", 2048, NULL, priorityTask2, NULL, 1);
+  xTaskCreatePinnedToCore(tampilkan_waktu, "Task 2", 2048, NULL, priorityTask2, NULL, 0);
+  xTaskCreatePinnedToCore(baca_tombol, "Task 3", 2048, NULL, priorityTask3, NULL 1);
 
   pinMode(btn_tambah_jam, INPUT_PULLUP);
   pinMode(btn_kurang_jam, INPUT_PULLUP);
@@ -43,40 +46,11 @@ void setup() {
   pinMode(btn_kurang_detik, INPUT_PULLUP);
 }
 
-void loop() {
-  if (digitalRead(btn_tambah_jam) == LOW) {
-    jam = (jam + 1) % 24;
-    delay(200);
-  }
-  if (digitalRead(btn_tambah_menit) == LOW) {
-    menit += 1;
-    if (menit >= 60) {
-      menit %= 60;
-    } 
-    delay(200);
-  }
-  if (digitalRead(btn_tambah_detik) == LOW) {
-    detik += 1;
-    if (detik >= 60) {
-      detik %= 60;
-    }
-    delay(200);
-  }
-  if (digitalRead(btn_kurang_jam) == LOW){
-    jam = (jam==0) ? 23 : jam - 1;
-    delay (200);
-  }
-  if (digitalRead(btn_kurang_menit) == LOW) {
-    menit = (menit == 0) ? 59 : menit - 1;
-    delay (200);
-  }
-  if(digitalRead(btn_kurang_detik) == LOW) {
-    detik = (detik ==0) ? 59 : detik - 1;
-    delay (200);
-  }
+void loop(){
+  //loop dibiarkan kosong
 }
 
-void tampilkan_waktu(void *pvParam) {
+void tampilkan_waktu(void *pvParam) {// wip
   (void) pvParam;
   while (1) {
     xSemaphoreTake(xMutex, portMAX_DELAY);
@@ -115,5 +89,38 @@ void update_waktu(void *pvParam) {
     }
     xSemaphoreGive(xMutex);
     vTaskDelay(pdMS_TO_TICKS(1000));
+  }
+}
+
+void baca_tombol(void *pvParam) {
+  if (digitalRead(btn_tambah_jam) == LOW) {
+    jam = (jam + 1) % 24;
+    delay(200);
+  }
+  if (digitalRead(btn_tambah_menit) == LOW) {
+    menit += 1;
+    if (menit >= 60) {
+      menit %= 60;
+    } 
+    delay(200);
+  }
+  if (digitalRead(btn_tambah_detik) == LOW) {
+    detik += 1;
+    if (detik >= 60) {
+      detik %= 60;
+    }
+    delay(200);
+  }
+  if (digitalRead(btn_kurang_jam) == LOW){
+    jam = (jam==0) ? 23 : jam - 1;
+    delay (200);
+  }
+  if (digitalRead(btn_kurang_menit) == LOW) {
+    menit = (menit == 0) ? 59 : menit - 1;
+    delay (200);
+  }
+  if(digitalRead(btn_kurang_detik) == LOW) {
+    detik = (detik ==0) ? 59 : detik - 1;
+    delay (200);
   }
 }
