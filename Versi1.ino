@@ -1,63 +1,75 @@
 #include "Wire.h"
-#include <LCD_I2C.h>
+#include <LiquidCrystal_I2C.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
-// task priority definition
+// RTOS Task Priority Macro Definitions
 #define priorityTask1 2
 #define priorityTask2 2
-#define priorityTask3 2
-// mutex init for RTOS
-SemaphoreHandle_t xMutex;
-// LCD object init
-LCD_I2C lcd(0x27, 16, 2);
-// RTOS function init
+#define priorityTask3 1
+
+SemaphoreHandle_t xMutex; // init mutex for RTOS
+LiquidCrystal_I2C lcd(0x27, 16, 2); // create LCD object
+int jam = 0, menit = 0, detik = 0; // init time variables
+// function definitions
 void update_waktu(void *pvParam);
 void tampilkan_waktu(void *pvParam);
-void baca_tombol(void *pvParam);
-// variable for time 
-int jam = 0, menit = 0, detik = 0;
+void tambah_jam(void *pvParam);
+void kurang_jam(void *pvParam);
+void tambah_menit(void *pvParam);
+void kurang_menit(void *pvParam);
+void tambah_detik(void *pvParam);
+void kurang_detik(void *pvParam);
 // button pin macro definitions
-#define btn_tambah_jam 2
-#define btn_kurang_jam 3
-#define btn_tambah_menit 4
-#define btn_kurang_menit 5
-#define btn_tambah_detik 6
-#define btn_kurang_detik 7
+#define btn_tambah_jam 12
+#define btn_kurang_jam 13
+#define btn_tambah_menit 14
+#define btn_kurang_menit 15
+#define btn_tambah_detik 16
+#define btn_kurang_detik 17
 
 void setup() {
-  Serial.begin(9600); // serial comm init
-  Wire.begin(); // i2c connection init
-
-  lcd.begin(); // lcd startup
+  Serial.begin(9600); // init serial communication
+  Wire.begin(); // init i2c connection
+  lcd.init(); // start LCD
   lcd.print("Jam Siap!");
   lcd.backlight();
-  
-  xMutex = xSemaphoreCreateMutex(); // mutex init
-  // RTOS function init
-  xTaskCreatePinnedToCore(update_waktu, "Task 1", 2048, NULL, priorityTask1, NULL, 0);
-  xTaskCreatePinnedToCore(tampilkan_waktu, "Task 2", 2048, NULL, priorityTask2, NULL, 0);
-  xTaskCreatePinnedToCore(baca_tombol, "Task 3", 2048, NULL, priorityTask3, NULL 1);
-  // button pin init
-  pinMode(btn_tambah_jam, INPUT_PULLUP);
+  // setup button pin modes to internal pullup
+  pinMode(btn_tambah_jam, INPUT_PULLUP); 
   pinMode(btn_kurang_jam, INPUT_PULLUP);
   pinMode(btn_tambah_menit, INPUT_PULLUP);
   pinMode(btn_kurang_menit, INPUT_PULLUP);
   pinMode(btn_tambah_detik, INPUT_PULLUP);
   pinMode(btn_kurang_detik, INPUT_PULLUP);
+
+  xMutex = xSemaphoreCreateMutex(); // create mutex object
+  if (xMutex == NULL) { // mutex debugging printout
+    Serial.println("Mutex creation failed!");
+    while (1);
+  }
+  // assign lcd and time increment task to core 0
+  xTaskCreatePinnedToCore(update_waktu, "Task 1", 2048, NULL, priorityTask1, NULL,0 );
+  xTaskCreatePinnedToCore(tampilkan_waktu, "Task 2", 2048, NULL, priorityTask2, NULL,0);
+  // assign button task to core 1
+  xTaskCreatePinnedToCore(tambah_jam, "Tambah Jam", 1024, NULL, priorityTask3, NULL,1);
+  xTaskCreatePinnedToCore(kurang_jam, "Kurang Jam", 1024, NULL, priorityTask3, NULL,1);
+  xTaskCreatePinnedToCore(tambah_menit, "Tambah Menit", 1024, NULL, priorityTask3, NULL,1);
+  xTaskCreatePinnedToCore(kurang_menit, "Kurang Menit", 1024, NULL, priorityTask3, NULL,1);
+  xTaskCreatePinnedToCore(tambah_detik, "Tambah Detik", 1024, NULL, priorityTask3, NULL,1);
+  xTaskCreatePinnedToCore(kurang_detik, "Kurang Detik", 1024, NULL, priorityTask3, NULL,1);
 }
 
-void loop(){
-  //loop dibiarkan kosong (fungsionalitas program pada RTOS)
+void loop() {
+  // empty loop (functionality from RTOS)
 }
 
-void tampilkan_waktu(void *pvParam) { // fungsi untuk membaca tombol
-  (void) pvParam;
+void tampilkan_waktu(void *pvParam) { // function for displaying LCD
   while (1) {
-    xSemaphoreTake(xMutex, portMAX_DELAY); // take xMutex untuk memulai task
-    {
-      lcd.clear(); // display informasi waktu pada lcd
-      lcd.setCursor(0,0);
+    Serial.println("Updating LCD...");
+    xSemaphoreTake(xMutex, portMAX_DELAY); // receive mutex to start task
+    { // display time information
+      lcd.clear(); 
+      lcd.setCursor(0, 0);
       lcd.print("Waktu: ");
       lcd.print(jam < 10 ? "0" : "");
       lcd.print(jam);
@@ -68,62 +80,98 @@ void tampilkan_waktu(void *pvParam) { // fungsi untuk membaca tombol
       lcd.print(detik < 10 ? "0" : "");
       lcd.print(detik);
     }
-    xSemaphoreGive(xMutex); // return mutex untuk menjalankan task lain
-    vTaskDelay(pdMS_TO_TICKS(1000)); // delay 1s
+    xSemaphoreGive(xMutex); // return mutex for next task
+    vTaskDelay(pdMS_TO_TICKS(1000)); // delay 1s (to avoid flickering)
   }
 }
 
-void update_waktu(void *pvParam) { // fungsi untuk increment waktu
-  (void) pvParam;
-  while(1) { 
-    xSemaphoreTake(xMutex,portMAX_DELAY); // take xMutex untuk memulai task 
+void update_waktu(void *pvParam) { // function to increment time
+  while (1) {
+    xSemaphoreTake(xMutex, portMAX_DELAY); // receive mutex to start task
     {
       detik++; // increment second
-      if (detik >= 60) { // check seconds for overflow
+      if (detik >= 60) { // check for second overflow
         detik = 0;
         menit++; // if overflow, increment minute
-        if (menit >= 60) { // check minute for overflow
+        if (menit >= 60) { // check for minute overflow
           menit = 0;
           jam = (jam + 1) % 24; // if overflow, increment hour
         }
       }
     }
-    xSemaphoreGive(xMutex); // return xMutex unutk menjalankan task lain 
-    vTaskDelay(pdMS_TO_TICKS(1000)); // delay 1s
+    xSemaphoreGive(xMutex); // return mutex for next task
+    vTaskDelay(pdMS_TO_TICKS(1000)); // delay 1s (to simulate real-time clock)
   }
 }
 
-void baca_tombol(void *pvParam) {  // fungsi untuk membaca tombol
-  (void) pvParam;
-  while (1) { 
-    xSemaphoreTake(xMutex, portMAX_DELAY); // take xMutex untuk memulai task
-    { // check each button input
-      if (digitalRead(btn_tambah_jam) == LOW) { 
-        jam = (jam + 1) % 24; 
-      }
-      if (digitalRead(btn_tambah_menit) == LOW) {
-        menit += 1;
-        if (menit >= 60) {
-          menit %= 60;
-        }
-      }
-      if (digitalRead(btn_tambah_detik) == LOW) {
-        detik += 1;
-        if (detik >= 60) {
-          detik %= 60;
-        }
-      }
-      if (digitalRead(btn_kurang_jam) == LOW){
-        jam = (jam==0) ? 23 : jam - 1;
-      }
-      if (digitalRead(btn_kurang_menit) == LOW) {
-        menit = (menit == 0) ? 59 : menit - 1;
-      }
-      if(digitalRead(btn_kurang_detik) == LOW) {
-        detik = (detik ==0) ? 59 : detik - 1;
-      }
+void tambah_jam(void *pvParam) { // function to increase hour var
+  while (1) {
+    if (digitalRead(btn_tambah_jam) == LOW) { // check button input
+      xSemaphoreTake(xMutex, portMAX_DELAY); // ensure safety with mutex (no other tasks are ran)
+      jam = (jam + 1) % 24; // increment hour, discard overflow
+      xSemaphoreGive(xMutex); // return mutex
+      vTaskDelay(pdMS_TO_TICKS(300)); // debounce delay
     }
-    xSemaphoreGive(xMutex); // return xMutex untuk menjalankan task lain
-    vTaskDelay(pdMS_TO_TICKS(200)); // delay 200ms
+    vTaskDelay(pdMS_TO_TICKS(10)); // polling delay (if button not read)
+  }
+}
+
+void kurang_jam(void *pvParam) { // function to decrease hour var
+  while (1) {
+    if (digitalRead(btn_kurang_jam) == LOW) { // check button input
+      xSemaphoreTake(xMutex, portMAX_DELAY); // ensure safety with mutex (no other tasks are ran)
+      jam = (jam == 0) ? 23 : jam - 1; // decrement hour, normalize value if negative
+      xSemaphoreGive(xMutex); // return mutex
+      vTaskDelay(pdMS_TO_TICKS(300)); // debounce delay
+    }
+    vTaskDelay(pdMS_TO_TICKS(10)); // polling delay (if button not read)
+  }
+}
+
+void tambah_menit(void *pvParam) { // function to increase minute var
+  while (1) {
+    if (digitalRead(btn_tambah_menit) == LOW) { // check button input
+      xSemaphoreTake(xMutex, portMAX_DELAY); // ensure safety with mutex
+      menit = (menit + 1) % 60; // increment minute, discard overflow
+      xSemaphoreGive(xMutex); // return mutex
+      vTaskDelay(pdMS_TO_TICKS(300)); // debounce delay
+    }
+    vTaskDelay(pdMS_TO_TICKS(10)); // polling delay (if button not read)
+  }
+}
+
+void kurang_menit(void *pvParam) { // function to decrease minute var
+  while (1) {
+    if (digitalRead(btn_kurang_menit) == LOW) { // check button input
+      xSemaphoreTake(xMutex, portMAX_DELAY); // ensure safety 
+      menit = (menit == 0) ? 59 : menit - 1; // decrement minute, normalize value
+      xSemaphoreGive(xMutex); // return mutex
+      vTaskDelay(pdMS_TO_TICKS(300)); // debounce delay
+    }
+    vTaskDelay(pdMS_TO_TICKS(10)); // polling delay (if button not read)
+  }
+}
+
+void tambah_detik(void *pvParam) { // function to increase seconds var
+  while (1) {
+    if (digitalRead(btn_tambah_detik) == LOW) { // check button input
+      xSemaphoreTake(xMutex, portMAX_DELAY); // ensure safety
+      detik = (detik + 1) % 60; // increment seconds, discard overflow
+      xSemaphoreGive(xMutex); // return mutex
+      vTaskDelay(pdMS_TO_TICKS(300)); // debounce delay
+    }
+    vTaskDelay(pdMS_TO_TICKS(10)); // polling delay (if button not read)
+  }
+}
+
+void kurang_detik(void *pvParam) { // function to decrease seconds var
+  while (1) {
+    if (digitalRead(btn_kurang_detik) == LOW) { // check button input 
+      xSemaphoreTake(xMutex, portMAX_DELAY); // ensure safety
+      detik = (detik == 0) ? 59 : detik - 1; // decrement seconds, normalize value
+      xSemaphoreGive(xMutex); // return mutex
+      vTaskDelay(pdMS_TO_TICKS(300)); // debounce delay
+    }
+    vTaskDelay(pdMS_TO_TICKS(10)); // polling delay (if button not read)
   }
 }
